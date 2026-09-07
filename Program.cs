@@ -13,6 +13,14 @@ internal static class Program
     private static readonly int[] IcoSizes = { 16, 32, 48, 64, 128, 256 };
     private static readonly string OriginalsFolderName = "_originals";
 
+    // Defaults for extract, chosen by eye across the whole icon set.
+    private static readonly string DefaultMode = "shade";
+    // Share of the tint's lightness used for the dark end of the shade band. Chosen
+    // so a white set floors at #8C8C8C, and a coloured set floors at the same
+    // relative depth in its own hue.
+    private static readonly double DefaultFloorRatio = 0.5865;
+    private static readonly double DefaultCurve = 3.0;
+
     private static readonly string[] StripWords =
     {
         "Browser ", " Launcher", "Minecraft ", " Client", " Desktop", " App"
@@ -103,9 +111,17 @@ internal static class Program
                 {
                     UpdateLnkIcon(shell!, shortcutPath, icoFile);
                 }
-                else
+                else if (!UpdateUrlIcon(shortcutPath, icoFile, out var rewritten))
                 {
-                    UpdateUrlIcon(shortcutPath, icoFile);
+                    Console.WriteLine($"[skip] {name}{ext}, no [InternetShortcut] section to write an icon into");
+                    continue;
+                }
+                else if (!rewritten)
+                {
+                    NotifyShortcutChanged(shortcutPath);
+                    Console.WriteLine($"[ok]   {name}{ext} -> {Path.GetFileName(icoFile)} (already set, shell icon cache may be stale)");
+                    updated++;
+                    continue;
                 }
 
                 NotifyShortcutChanged(shortcutPath);
@@ -150,7 +166,9 @@ internal static class Program
     {
         Console.WriteLine("Usage: icon-cli <set-name>");
         Console.WriteLine("       icon-cli convert <set-name> [--only <name>] [--force]");
-        Console.WriteLine("       icon-cli extract <set-name> [--only <name>] [--color #RRGGBB] [--force] [--refresh]");
+        Console.WriteLine("       icon-cli extract <set-name> [--only <name>] [--force] [--refresh]");
+        Console.WriteLine("                                   [--color #RRGGBB] [--mode shade|ink|silhouette]");
+        Console.WriteLine("                                   [--floor #RRGGBB] [--curve <n>] [--cut <pct>] [--spread]");
         Console.WriteLine();
         Console.WriteLine("Applies the .ico files found in <icons-root>\\<set-name> to matching");
         Console.WriteLine("desktop shortcuts (.lnk and .url).");
@@ -165,6 +183,10 @@ internal static class Program
         Console.WriteLine("An archived original is reused on later runs and never overwritten, so the");
         Console.WriteLine("set can be rebuilt after it has been applied. --refresh re-reads the icon");
         Console.WriteLine("from the shortcut and replaces the archived copy.");
+        Console.WriteLine();
+        Console.WriteLine($"extract defaults to --mode {DefaultMode} --curve {DefaultCurve:0.#}, and a --floor at");
+        Console.WriteLine($"{DefaultFloorRatio * 100:0}% of the set colour's lightness (#8C8C8C for a white set).");
+        Console.WriteLine("Use --mode ink for the older figure-on-transparent look.");
         Console.WriteLine();
         Console.WriteLine("--only filters by shortcut or image name, --force overwrites existing files.");
         Console.WriteLine();
@@ -242,7 +264,8 @@ internal static class Program
     {
         if (args.Length < 2)
         {
-            Console.Error.WriteLine("Usage: icon-cli extract <set-name> [--only <name>] [--color #RRGGBB] [--force] [--refresh]");
+            Console.Error.WriteLine("Usage: icon-cli extract <set-name> [--only <name>] [--color #RRGGBB] [--mode shade|ink|silhouette]");
+            Console.Error.WriteLine("                                   [--floor #RRGGBB] [--curve <n>] [--cut <pct>] [--spread] [--force] [--refresh]");
             return 1;
         }
 
@@ -250,9 +273,15 @@ internal static class Program
         var force = args.Contains("--force", StringComparer.OrdinalIgnoreCase);
         var only = GetOptionValue(args, "--only");
         var colorText = GetOptionValue(args, "--color");
-        var silhouette = string.Equals(GetOptionValue(args, "--mode"), "silhouette", StringComparison.OrdinalIgnoreCase);
-        var refresh = args.Contains("--refresh", StringComparer.OrdinalIgnoreCase);
-        var iconFolder = Path.Combine(IconsRoot, setName);
+        var mode = GetOptionValue(args, "--mode") ?? DefaultMode;
+        var silhouette = string.Equals(mode, "silhouette", StringComparison.OrdinalIgnoreCase);
+        var shade = string.Equals(mode, "shade", StringComparison.OrdinalIgnoreCase);
+
+        if (!silhouette && !shade && !string.Equals(mode, "ink", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine($"unknown --mode '{mode}', expected shade, ink or silhouette");
+            return 1;
+        }
 
         var tint = ResolveTint(setName, colorText);
         if (tint is null)
@@ -260,6 +289,43 @@ internal static class Program
             Console.Error.WriteLine($"cannot derive a color for set '{setName}', pass --color #RRGGBB");
             return 1;
         }
+
+        var floorColor = ParseColor(GetOptionValue(args, "--floor"))
+                         ?? IconShader.FloorFor(tint.Value, DefaultFloorRatio);
+        var spread = args.Contains("--spread", StringComparer.OrdinalIgnoreCase);
+        var curve = DefaultCurve;
+
+        if (GetOptionValue(args, "--curve") is { } curveText
+            && !double.TryParse(curveText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out curve))
+        {
+            Console.Error.WriteLine($"--curve needs a number, got '{curveText}'");
+            return 1;
+        }
+
+        if (curve <= 0.0)
+        {
+            Console.Error.WriteLine("--curve must be greater than 0");
+            return 1;
+        }
+
+        var cut = 0.0;
+
+        if (GetOptionValue(args, "--cut") is { } cutText
+            && !double.TryParse(cutText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out cut))
+        {
+            Console.Error.WriteLine($"--cut needs a percentage, got '{cutText}'");
+            return 1;
+        }
+
+        if (cut < 0.0 || cut > 95.0)
+        {
+            Console.Error.WriteLine("--cut must be between 0 and 95");
+            return 1;
+        }
+
+        cut /= 100.0;
+        var refresh = args.Contains("--refresh", StringComparer.OrdinalIgnoreCase);
+        var iconFolder = Path.Combine(IconsRoot, setName);
 
         if (!Directory.Exists(iconFolder))
         {
@@ -339,9 +405,11 @@ internal static class Program
 
                 using var _ = original;
 
-                using var tinted = silhouette
-                    ? IconRecolorer.Tint(original, tint.Value)
-                    : IconRecolorer.ToInk(original, tint.Value);
+                using var tinted = shade
+                    ? IconShader.Shade(original, floorColor, tint.Value, curve, spread, cut)
+                    : silhouette
+                        ? IconRecolorer.Tint(original, tint.Value)
+                        : IconRecolorer.ToInk(original, tint.Value);
 
                 if (silhouette && IconRecolorer.OpaqueCoverage(original) > 0.9)
                 {
@@ -378,6 +446,20 @@ internal static class Program
         return 0;
     }
 
+    private static Color? ParseColor(string? text)
+    {
+        if (text is null) return null;
+
+        try
+        {
+            return ColorTranslator.FromHtml(text);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     private static Color? ResolveTint(string setName, string? colorText)
     {
         if (colorText is not null)
@@ -395,6 +477,18 @@ internal static class Program
         var lower = setName.ToLowerInvariant();
         if (lower.StartsWith("white")) return Color.White;
         if (lower.StartsWith("black")) return Color.Black;
+
+        // Any set named after a colour resolves on its own: blue, teal, crimson.
+        try
+        {
+            var named = ColorTranslator.FromHtml(setName);
+            if (named.A != 0) return named;
+        }
+        catch (Exception)
+        {
+            // Not a colour name, fall through.
+        }
+
         return null;
     }
 
@@ -472,20 +566,51 @@ internal static class Program
         Marshal.ReleaseComObject(lnk);
     }
 
-    private static void UpdateUrlIcon(string shortcutPath, string icoFile)
+    /// <summary>
+    /// Points a .url shortcut at <paramref name="icoFile"/>. Returns false when the
+    /// file has no section to write into; <paramref name="changed"/> separates a real
+    /// write from a file that already said the right thing.
+    /// </summary>
+    private static bool UpdateUrlIcon(string shortcutPath, string icoFile, out bool changed)
     {
-        var content = File.ReadAllText(shortcutPath);
+        changed = false;
 
-        if (Regex.IsMatch(content, "^IconFile=.*$", RegexOptions.Multiline))
+        var content = File.ReadAllText(shortcutPath);
+        var original = content;
+
+        // [^\r\n]* rather than .* — "." matches the carriage return, so the old
+        // pattern swallowed it and left that one line ending as a bare newline.
+        if (Regex.IsMatch(content, @"^IconFile=[^\r\n]*", RegexOptions.Multiline))
         {
-            content = Regex.Replace(content, "^IconFile=.*$", $"IconFile={icoFile}", RegexOptions.Multiline);
+            content = Regex.Replace(content, @"^IconFile=[^\r\n]*", $"IconFile={icoFile}", RegexOptions.Multiline);
         }
         else if (content.Contains("[InternetShortcut]"))
         {
-            content = content.Replace("[InternetShortcut]", $"[InternetShortcut]\r\nIconFile={icoFile}\r\nIconIndex=0");
+            content = content.Replace("[InternetShortcut]", $"[InternetShortcut]\r\nIconFile={icoFile}");
+        }
+        else
+        {
+            return false;
         }
 
-        File.WriteAllText(shortcutPath, content, System.Text.Encoding.ASCII);
+        // The generated .ico holds a single image, so a leftover index from the old
+        // icon would point past the end of it and Windows would fall back.
+        if (Regex.IsMatch(content, @"^IconIndex=[^\r\n]*", RegexOptions.Multiline))
+        {
+            content = Regex.Replace(content, @"^IconIndex=[^\r\n]*", "IconIndex=0", RegexOptions.Multiline);
+        }
+        else
+        {
+            content = content.Replace("[InternetShortcut]", "[InternetShortcut]\r\nIconIndex=0");
+        }
+
+        if (content == original) return true;
+
+        // UTF-8 without a BOM: ASCII would turn any non-ASCII character in the path,
+        // or anywhere else in the file, into a question mark.
+        File.WriteAllText(shortcutPath, content, new System.Text.UTF8Encoding(false));
+        changed = true;
+        return true;
     }
 
     private static void NotifyShortcutChanged(string shortcutPath)
