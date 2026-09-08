@@ -2,7 +2,8 @@
 
 An simple tool for changing the color of your Desktop Icons
 
-Icon sets live in folders under `C:\Users\phili\OneDrive\Desktop\Icons`. A set named
+Icon sets live in an `Icons` folder on your desktop, or wherever `ICON_CLI_ROOT`
+points. A set named
 after a colour picks it up from its own name - `white`, `black`, `blue`, `teal`,
 `crimson`, any CSS colour name. Anything else needs `--color`.
 
@@ -10,6 +11,7 @@ after a colour picks it up from its own name - `white`, `black`, `blue`, `teal`,
 
 ```
 icon-cli <set-name>              apply the set's .ico files to matching desktop shortcuts
+icon-cli <set-name> --dry-run    report what that would change, without writing anything
 icon-cli extract <set-name>      pull each shortcut's current icon, recolour it, save it into the set
 icon-cli convert <set-name>      build .ico files from .png/.jpg/.jpeg/.bmp already in the set folder
 ```
@@ -29,6 +31,16 @@ Everything below applies to `extract`.
 | `--only <name>` | all | Only shortcuts whose name contains this. |
 | `--force` | off | Rebuild icons that already exist in the set. |
 | `--refresh` | off | Re-read the icon from the shortcut instead of reusing the archived original. |
+
+`convert` takes `--only`, `--color`, `--force`, and `--raw` to skip the tint and keep
+the source colours. Applying a set takes `--dry-run`.
+
+Applying a set rewrites shortcuts and keeps no record of what it replaced, so preview
+it first:
+
+```
+icon-cli white --dry-run
+```
 
 Originals are archived to `Icons\_originals` on first extract and reused afterwards, so a
 set can be rebuilt at any time without touching the shortcuts.

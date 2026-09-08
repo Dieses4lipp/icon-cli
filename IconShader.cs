@@ -26,6 +26,18 @@ internal static class IconShader
     // being removed.
     private const double CutFeather = 0.05;
 
+    /// <summary>
+    /// Dark end of the band for a white set, picked by eye across the icons.
+    /// </summary>
+    public static readonly Color DefaultWhiteFloor = Color.FromArgb(0x8C, 0x8C, 0x8C);
+
+    /// <summary>
+    /// That same depth as a share of any tint's lightness, so a coloured set floors at
+    /// the matching point in its own hue. White has an Oklab lightness of 1, so the
+    /// floor's own lightness is the ratio, and this stays correct if the floor changes.
+    /// </summary>
+    public static double DefaultFloorRatio => ToOklab(DefaultWhiteFloor).L;
+
     public static Bitmap Shade(Image source, Color darkest, Color lightest)
     {
         return Shade(source, darkest, lightest, 1.0, false, 0.0);
@@ -97,9 +109,6 @@ internal static class IconShader
 
             for (var i = 0; i < buffer.Length; i += 4)
             {
-                // A single-colour source has no range to stretch. Sending it to the
-                // middle of the band keeps it from flashing white next to its
-                // neighbours in the same set.
                 var position = span <= 0.0
                     ? 0.5
                     : Math.Clamp((lightness[i / 4] - darkestFound) / span, 0.0, 1.0);
@@ -116,9 +125,6 @@ internal static class IconShader
                     var above = (position - cut) / CutFeather;
                     var fade = Math.Clamp(above, 0.0, 1.0);
                     visible = fade * fade * (3.0 - 2.0 * fade);
-
-                    // Restretch what is left, so dropping the bottom does not also
-                    // drain the shading out of everything above it.
                     position = Math.Clamp((position - cut) / (1.0 - cut), 0.0, 1.0);
                 }
 
@@ -177,8 +183,6 @@ internal static class IconShader
         var running = 0;
         for (var bin = 0; bin < DistributionBins; bin++)
         {
-            // Half of this bin's own pixels, so a colour lands in the middle of the
-            // slice it occupies rather than at its far edge.
             ranks[bin] = (running + histogram[bin] / 2.0) / counted;
             running += histogram[bin];
         }
@@ -206,7 +210,9 @@ internal static class IconShader
         return Lightness(lightest.R, lightest.G, lightest.B) - Lightness(darkest.R, darkest.G, darkest.B);
     }
 
-    /// <summary>CIE L*, 0 to 100, in which equal steps look equally far apart.</summary>
+    /// <summary>
+    /// CIE L*, 0 to 100, in which equal steps look equally far apart.
+    /// </summary>
     private static double Lightness(byte r, byte g, byte b)
     {
         var luminance =
