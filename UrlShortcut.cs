@@ -8,6 +8,9 @@ namespace IconCli;
 /// </summary>
 internal static class UrlShortcut
 {
+    private static readonly Regex IconFileLine = new(@"^IconFile=[^\r\n]*", RegexOptions.Multiline);
+    private static readonly Regex IconIndexLine = new(@"^IconIndex=[^\r\n]*", RegexOptions.Multiline);
+
     /// <summary>
     /// Returns <paramref name="content"/> with its icon pointed at
     /// <paramref name="icoFile"/>, or null when there is no section to write into.
@@ -15,9 +18,13 @@ internal static class UrlShortcut
     /// </summary>
     public static string? SetIcon(string content, string icoFile)
     {
-        if (Regex.IsMatch(content, @"^IconFile=[^\r\n]*", RegexOptions.Multiline))
+        // A path is data, not a replacement pattern. "$" sequences in it would otherwise
+        // be read as group references and silently rewrite the path.
+        var line = "IconFile=" + icoFile.Replace("$", "$$");
+
+        if (IconFileLine.IsMatch(content))
         {
-            content = Regex.Replace(content, @"^IconFile=[^\r\n]*", "IconFile=" + icoFile, RegexOptions.Multiline);
+            content = IconFileLine.Replace(content, line);
         }
         else if (content.Contains("[InternetShortcut]"))
         {
@@ -28,15 +35,13 @@ internal static class UrlShortcut
             return null;
         }
 
-        if (Regex.IsMatch(content, @"^IconIndex=[^\r\n]*", RegexOptions.Multiline))
+        if (IconIndexLine.IsMatch(content))
         {
-            content = Regex.Replace(content, @"^IconIndex=[^\r\n]*", "IconIndex=0", RegexOptions.Multiline);
-        }
-        else
-        {
-            content = content.Replace("[InternetShortcut]", "[InternetShortcut]\r\nIconIndex=0");
+            return IconIndexLine.Replace(content, "IconIndex=0");
         }
 
-        return content;
+        // An IconFile line exists by now, so anchoring the index to it keeps the two keys
+        // in the same section whatever that section happens to be called.
+        return IconFileLine.Replace(content, "$&\r\nIconIndex=0", 1);
     }
 }

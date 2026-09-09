@@ -77,6 +77,7 @@ internal static class Program
     {
         var setName = args[0];
         var dryRun = args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase);
+        var only = GetOptionValue(args, "--only");
         var iconFolder = Path.Combine(IconsRoot, setName);
 
         if (!Directory.Exists(iconFolder))
@@ -102,11 +103,14 @@ internal static class Program
         var shortcuts = desktopPaths
             .SelectMany(d => Directory.EnumerateFiles(d, "*.lnk")
                 .Concat(Directory.EnumerateFiles(d, "*.url")))
+            .Where(f => Matches(Path.GetFileNameWithoutExtension(f), only))
             .ToList();
 
         if (shortcuts.Count == 0)
         {
-            Console.WriteLine("No shortcuts found on any desktop location");
+            Console.WriteLine(only is null
+                ? "No shortcuts found on any desktop location"
+                : $"No shortcuts matching '{only}'");
             return 0;
         }
 
@@ -205,7 +209,7 @@ internal static class Program
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage: icon-cli <set-name> [--dry-run]");
+        Console.WriteLine("Usage: icon-cli <set-name> [--only <name>] [--dry-run]");
         Console.WriteLine("       icon-cli convert <set-name> [--only <name>] [--color #RRGGBB] [--force] [--raw]");
         Console.WriteLine("       icon-cli extract <set-name> [--only <name>] [--force] [--refresh]");
         Console.WriteLine("                                   [--color #RRGGBB] [--mode shade|ink|silhouette]");
@@ -230,7 +234,8 @@ internal static class Program
         Console.WriteLine($"{DefaultFloorRatio * 100:0}% of the set colour's lightness (#8C8C8C for a white set).");
         Console.WriteLine("Use --mode ink for the older figure-on-transparent look.");
         Console.WriteLine();
-        Console.WriteLine("--only filters by shortcut or image name, --force overwrites existing files.");
+        Console.WriteLine("--only filters by shortcut or image name and works on every command,");
+        Console.WriteLine("--force overwrites existing files.");
         Console.WriteLine("--dry-run reports what applying a set would change, without writing anything.");
         Console.WriteLine();
         Console.WriteLine("Set ICON_CLI_ROOT to keep the icon library somewhere other than the desktop.");

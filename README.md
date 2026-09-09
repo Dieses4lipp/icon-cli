@@ -12,6 +12,7 @@ after a colour picks it up from its own name - `white`, `black`, `blue`, `teal`,
 ```
 icon-cli <set-name>              apply the set's .ico files to matching desktop shortcuts
 icon-cli <set-name> --dry-run    report what that would change, without writing anything
+icon-cli <set-name> --only <n>   restrict the run to shortcuts whose name contains <n>
 icon-cli extract <set-name>      pull each shortcut's current icon, recolour it, save it into the set
 icon-cli convert <set-name>      build .ico files from .png/.jpg/.jpeg/.bmp already in the set folder
 ```
@@ -33,13 +34,20 @@ Everything below applies to `extract`.
 | `--refresh` | off | Re-read the icon from the shortcut instead of reusing the archived original. |
 
 `convert` takes `--only`, `--color`, `--force`, and `--raw` to skip the tint and keep
-the source colours. Applying a set takes `--dry-run`.
+the source colours. Applying a set takes `--only` and `--dry-run`.
 
 Applying a set rewrites shortcuts and keeps no record of what it replaced, so preview
 it first:
 
 ```
 icon-cli white --dry-run
+```
+
+`--only` narrows a run to one shortcut, which pairs with `--dry-run` for a first pass:
+
+```
+icon-cli white --only Postman --dry-run
+icon-cli white --only Postman
 ```
 
 Originals are archived to `Icons\_originals` on first extract and reused afterwards, so a
