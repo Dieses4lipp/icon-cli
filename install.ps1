@@ -7,8 +7,13 @@
     against the SHA256 checksum published alongside it, places it in
     %LOCALAPPDATA%\Programs\icon-cli and adds that folder to the User PATH.
 
+    It also keeps a copy of itself next to the exe as icon-cli-installer.ps1 and
+    registers icon-cli under Settings, Apps, Installed apps, so it can be removed
+    from there or offline.
+
     Nothing outside the current user's profile and HKCU is touched: no Machine
-    PATH, no Program Files, no registry writes beyond the per-user environment.
+    PATH, no Program Files, no writes outside HKCU\Environment and the per-user
+    Uninstall key.
 
 .PARAMETER Version
     Install a specific release tag, for example '0.1.0' or 'v0.1.0'.
@@ -39,6 +44,12 @@ $ProgressPreference = 'SilentlyContinue'
 $Repository = 'Dieses4lipp/icon-cli'
 $ExeName = 'icon-cli.exe'
 $InstallDirectory = Join-Path -Path $env:LOCALAPPDATA -ChildPath 'Programs\icon-cli'
+$InstallerName = 'icon-cli-installer.ps1'
+$SourceUrl = "https://raw.githubusercontent.com/$Repository/main/install.ps1"
+
+# Per-user Add/Remove Programs. HKCU only, so no administrator rights and no
+# effect on other accounts.
+$UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\icon-cli'
 
 function Initialize-Tls {
     # Windows PowerShell 5.1 on older builds still defaults to TLS 1.0, which
@@ -163,7 +174,82 @@ function Remove-UserPathEntry {
     Write-Host "Removed $Directory from the User PATH."
 }
 
+function Save-LocalUninstaller {
+    $target = Join-Path -Path $InstallDirectory -ChildPath $InstallerName
+
+    if (-not [string]::IsNullOrEmpty($PSCommandPath)) {
+        # Run from a file: keep exactly the script that is running.
+        Copy-Item -LiteralPath $PSCommandPath -Destination $target -Force
+    }
+    else {
+        # Run through 'irm | iex' there is no file to copy, and $MyInvocation
+        # reports the caller rather than the piped text, so fetch the source.
+        Invoke-WebRequest -Uri $SourceUrl -OutFile $target -UseBasicParsing
+    }
+
+    Write-Host "Wrote $target."
+    return $target
+}
+
+function Register-UninstallEntry {
+    param(
+        [string] $DisplayVersion,
+        [string] $UninstallerPath
+    )
+
+    $exePath = Join-Path -Path $InstallDirectory -ChildPath $ExeName
+    $sizeInKb = [int]([math]::Ceiling((Get-Item -LiteralPath $exePath).Length / 1024))
+    $command = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}" -Uninstall' -f $UninstallerPath
+
+    if (-not (Test-Path -LiteralPath $UninstallKey)) {
+        New-Item -Path $UninstallKey -Force | Out-Null
+    }
+
+    $values = [ordered]@{
+        DisplayName          = 'icon-cli'
+        DisplayVersion       = $DisplayVersion
+        Publisher            = 'Dieses4lipp'
+        DisplayIcon          = $exePath
+        InstallLocation      = $InstallDirectory
+        URLInfoAbout         = "https://github.com/$Repository"
+        UninstallString      = $command
+        QuietUninstallString = $command
+    }
+
+    foreach ($name in $values.Keys) {
+        New-ItemProperty -Path $UninstallKey -Name $name -Value $values[$name] -PropertyType String -Force | Out-Null
+    }
+
+    foreach ($name in @('NoModify', 'NoRepair')) {
+        New-ItemProperty -Path $UninstallKey -Name $name -Value 1 -PropertyType DWord -Force | Out-Null
+    }
+
+    New-ItemProperty -Path $UninstallKey -Name 'EstimatedSize' -Value $sizeInKb -PropertyType DWord -Force | Out-Null
+
+    Write-Host 'Registered icon-cli under Settings, Apps, Installed apps.'
+}
+
+function Unregister-UninstallEntry {
+    if (Test-Path -LiteralPath $UninstallKey) {
+        Remove-Item -LiteralPath $UninstallKey -Recurse -Force
+        Write-Host 'Removed the Installed apps entry.'
+    }
+    else {
+        Write-Host 'No Installed apps entry to remove.'
+    }
+}
+
 function Invoke-Uninstall {
+    Unregister-UninstallEntry
+
+    # Add/Remove Programs runs the copy inside the folder about to be deleted.
+    # Nothing holds the script open, but the folder cannot be removed while it
+    # is the working directory.
+    $current = (Get-Location).Path
+    if ($current.TrimEnd('\').StartsWith($InstallDirectory.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) {
+        Set-Location -LiteralPath ([System.IO.Path]::GetTempPath())
+    }
+
     if (Test-Path -LiteralPath $InstallDirectory) {
         Remove-Item -LiteralPath $InstallDirectory -Recurse -Force
         Write-Host "Removed $InstallDirectory."
@@ -217,6 +303,9 @@ function Invoke-Install {
 
     Add-UserPathEntry -Directory $InstallDirectory
 
+    $uninstallerPath = Save-LocalUninstaller
+    Register-UninstallEntry -DisplayVersion ($release.tag_name -replace '^v', '') -UninstallerPath $uninstallerPath
+
     # Make the command usable in this session too, without a restart.
     $onSessionPath = @($env:Path -split ';' | Where-Object { Test-SamePath -Left $_ -Right $InstallDirectory })
     if ($onSessionPath.Count -eq 0) {
@@ -226,6 +315,7 @@ function Invoke-Install {
     Write-Host ''
     Write-Host 'Done. Run: icon-cli --help'
     Write-Host 'Open a new terminal if the command is not found in existing ones.'
+    Write-Host "Remove it from Settings, Apps, Installed apps, or run: $uninstallerPath -Uninstall"
 }
 
 if ($Uninstall) {

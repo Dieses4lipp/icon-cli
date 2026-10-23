@@ -20,7 +20,12 @@ irm https://raw.githubusercontent.com/Dieses4lipp/icon-cli/main/install.ps1 | ie
 That downloads the self-contained `icon-cli.exe` from the latest release, checks it
 against the SHA256 published next to it, puts it in
 `%LOCALAPPDATA%\Programs\icon-cli` and adds that folder to your User PATH. Open a
-new terminal afterwards. A specific release:
+new terminal afterwards.
+
+It needs no administrator rights and nothing goes into `Program Files`. Alongside
+the exe it keeps a copy of itself as `icon-cli-installer.ps1` and registers
+icon-cli under **Settings → Apps → Installed apps** for the current user only, so
+it can be removed from there without the network. A specific release:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Dieses4lipp/icon-cli/main/install.ps1))) -Version 0.1.0
@@ -45,13 +50,21 @@ After changing the code, bump `<Version>` in `icon-cli.csproj`, pack again, and 
 
 ## Uninstall
 
-The one-liner install:
+The one-liner install, from **Settings → Apps → Installed apps → icon-cli →
+Uninstall**, or from a terminal:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\icon-cli\icon-cli-installer.ps1" -Uninstall
+```
+
+Either deletes `%LOCALAPPDATA%\Programs\icon-cli`, takes its PATH entry back out
+and removes the Installed apps entry. Neither needs the network. If the folder is
+already gone, the remote script does the same cleanup:
 
 ```powershell
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/Dieses4lipp/icon-cli/main/install.ps1))) -Uninstall
 ```
 
-That deletes `%LOCALAPPDATA%\Programs\icon-cli` and takes its PATH entry back out.
 The dotnet tool install:
 
 ```
