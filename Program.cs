@@ -7,18 +7,52 @@ namespace IconCli;
 
 internal static class Program
 {
-    private static readonly string IconsRoot = @"C:\Users\phili\OneDrive\Desktop\Icons";
+    private static readonly string IconsRoot = ResolveIconsRoot();
 
     private static readonly string[] SourceImageExtensions = { "*.png", "*.jpg", "*.jpeg", "*.bmp" };
-    private static readonly int[] IcoSizes = { 16, 32, 48, 64, 128, 256 };
+    private static readonly int[] IcoSizes = { 16, 20, 24, 32, 40, 48, 64, 96, 128, 256 };
     private static readonly string OriginalsFolderName = "_originals";
+    private static readonly string DefaultMode = "shade";
+    private static readonly double DefaultFloorRatio = IconShader.DefaultFloorRatio;
+    private static readonly double DefaultCurve = 3.0;
 
     private static readonly string[] StripWords =
     {
         "Browser ", " Launcher", "Minecraft ", " Client", " Desktop", " App"
     };
 
+    /// <summary>
+    /// Where the icon sets live: ICON_CLI_ROOT if set, otherwise an Icons folder on the
+    /// user or the onedrive desktop.
+    /// </summary>
+    private static string ResolveIconsRoot()
+    {
+        var configured = Environment.GetEnvironmentVariable("ICON_CLI_ROOT");
+        if (!string.IsNullOrWhiteSpace(configured)) return Environment.ExpandEnvironmentVariables(configured);
+
+        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        if (string.IsNullOrEmpty(desktop))
+        {
+            desktop = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Desktop");
+        }
+
+        return Path.Combine(desktop, "Icons");
+    }
+
     private static int Main(string[] args)
+    {
+        try
+        {
+            return Routing(args);
+        }
+        catch (ArgumentException ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+    }
+
+    private static int Routing(string[] args)
     {
         if (args.Length == 0 || args[0] is "-h" or "--help" or "/?")
         {
@@ -36,12 +70,19 @@ internal static class Program
             return RunExtract(args);
         }
 
+        return RunApply(args);
+    }
+
+    private static int RunApply(string[] args)
+    {
         var setName = args[0];
+        var dryRun = args.Contains("--dry-run", StringComparer.OrdinalIgnoreCase);
+        var only = GetOptionValue(args, "--only");
         var iconFolder = Path.Combine(IconsRoot, setName);
 
         if (!Directory.Exists(iconFolder))
         {
-            Console.Error.WriteLine($"icon set '{setName}' not found at '{iconFolder}'");
+            Console.Error.WriteLine($"Icon set '{setName}' not found at '{iconFolder}'");
             PrintAvailableSets();
             return 1;
         }
@@ -62,11 +103,14 @@ internal static class Program
         var shortcuts = desktopPaths
             .SelectMany(d => Directory.EnumerateFiles(d, "*.lnk")
                 .Concat(Directory.EnumerateFiles(d, "*.url")))
+            .Where(f => Matches(Path.GetFileNameWithoutExtension(f), only))
             .ToList();
 
         if (shortcuts.Count == 0)
         {
-            Console.WriteLine("No shortcuts found on any desktop location");
+            Console.WriteLine(only is null
+                ? "No shortcuts found on any desktop location"
+                : $"No shortcuts matching '{only}'");
             return 0;
         }
 
@@ -75,7 +119,9 @@ internal static class Program
         var updated = 0;
         var missing = new List<string>();
         var advertised = new List<string>();
-        dynamic? shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!);
+
+        var shell = CreateShell();
+        if (shell is null) return 1;
 
         foreach (var shortcutPath in shortcuts)
         {
@@ -99,13 +145,28 @@ internal static class Program
 
             try
             {
+                if (dryRun)
+                {
+                    Console.WriteLine($"[dry]  {name}{ext} -> {Path.GetFileName(icoFile)}");
+                    updated++;
+                    continue;
+                }
+
                 if (ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase))
                 {
                     UpdateLnkIcon(shell!, shortcutPath, icoFile);
                 }
-                else
+                else if (!UpdateUrlIcon(shortcutPath, icoFile, out var rewritten))
                 {
-                    UpdateUrlIcon(shortcutPath, icoFile);
+                    Console.WriteLine($"[skip] {name}{ext}, no [InternetShortcut] section to write an icon into");
+                    continue;
+                }
+                else if (!rewritten)
+                {
+                    NotifyShortcutChanged(shortcutPath);
+                    Console.WriteLine($"[ok]   {name}{ext} -> {Path.GetFileName(icoFile)} (already set, shell icon cache may be stale)");
+                    updated++;
+                    continue;
                 }
 
                 NotifyShortcutChanged(shortcutPath);
@@ -123,11 +184,11 @@ internal static class Program
             Marshal.ReleaseComObject(shell);
         }
 
-        RefreshDesktop();
+        if (!dryRun) RefreshDesktop();
 
         Console.WriteLine();
         Console.WriteLine("Summary:");
-        Console.WriteLine($"  Updated:   {updated}");
+        Console.WriteLine(dryRun ? $"  Would update: {updated}" : $"  Updated:   {updated}");
         Console.WriteLine($"  Not found: {missing.Count}");
         if (missing.Count > 0)
         {
@@ -148,15 +209,18 @@ internal static class Program
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage: icon-cli <set-name>");
-        Console.WriteLine("       icon-cli convert <set-name> [--only <name>] [--force]");
-        Console.WriteLine("       icon-cli extract <set-name> [--only <name>] [--color #RRGGBB] [--force] [--refresh]");
+        Console.WriteLine("Usage: icon-cli <set-name> [--only <name>] [--dry-run]");
+        Console.WriteLine("       icon-cli convert <set-name> [--only <name>] [--color #RRGGBB] [--force] [--raw]");
+        Console.WriteLine("       icon-cli extract <set-name> [--only <name>] [--force] [--refresh]");
+        Console.WriteLine("                                   [--color #RRGGBB] [--mode shade|ink|silhouette]");
+        Console.WriteLine("                                   [--floor #RRGGBB] [--curve <n>] [--cut <pct>] [--spread]");
         Console.WriteLine();
         Console.WriteLine("Applies the .ico files found in <icons-root>\\<set-name> to matching");
         Console.WriteLine("desktop shortcuts (.lnk and .url).");
         Console.WriteLine();
         Console.WriteLine("convert generates .ico files from the .png/.jpg/.jpeg/.bmp source images");
-        Console.WriteLine("already in <icons-root>\\<set-name>.");
+        Console.WriteLine("already in <icons-root>\\<set-name>, tinted to the set colour. --raw keeps");
+        Console.WriteLine("the source colours instead.");
         Console.WriteLine();
         Console.WriteLine("extract pulls the icon a shortcut currently uses, saves it to");
         Console.WriteLine($"<icons-root>\\{OriginalsFolderName}, tints it to the set color and writes the");
@@ -166,7 +230,15 @@ internal static class Program
         Console.WriteLine("set can be rebuilt after it has been applied. --refresh re-reads the icon");
         Console.WriteLine("from the shortcut and replaces the archived copy.");
         Console.WriteLine();
-        Console.WriteLine("--only filters by shortcut or image name, --force overwrites existing files.");
+        Console.WriteLine($"extract defaults to --mode {DefaultMode} --curve {DefaultCurve:0.#}, and a --floor at");
+        Console.WriteLine($"{DefaultFloorRatio * 100:0}% of the set colour's lightness (#8C8C8C for a white set).");
+        Console.WriteLine("Use --mode ink for the older figure-on-transparent look.");
+        Console.WriteLine();
+        Console.WriteLine("--only filters by shortcut or image name and works on every command,");
+        Console.WriteLine("--force overwrites existing files.");
+        Console.WriteLine("--dry-run reports what applying a set would change, without writing anything.");
+        Console.WriteLine();
+        Console.WriteLine("Set ICON_CLI_ROOT to keep the icon library somewhere other than the desktop.");
         Console.WriteLine();
         PrintAvailableSets();
     }
@@ -182,6 +254,7 @@ internal static class Program
         var setName = args[1];
         var force = args.Contains("--force", StringComparer.OrdinalIgnoreCase);
         var only = GetOptionValue(args, "--only");
+        var raw = args.Contains("--raw", StringComparer.OrdinalIgnoreCase);
         var iconFolder = Path.Combine(IconsRoot, setName);
 
         if (!Directory.Exists(iconFolder))
@@ -190,6 +263,9 @@ internal static class Program
             PrintAvailableSets();
             return 1;
         }
+
+        var tint = raw ? null : ResolveTint(setName, GetOptionValue(args, "--color"));
+        var floor = tint is null ? (Color?)null : IconShader.FloorFor(tint.Value, DefaultFloorRatio);
 
         var sourceImages = SourceImageExtensions
             .SelectMany(pattern => Directory.EnumerateFiles(iconFolder, pattern))
@@ -220,8 +296,19 @@ internal static class Program
 
             try
             {
-                IconGenerator.GenerateIco(sourcePath, icoPath, IcoSizes);
-                Console.WriteLine($"[ok]   {Path.GetFileName(sourcePath)} -> {baseName}.ico");
+                if (tint is null)
+                {
+                    IconGenerator.GenerateIco(sourcePath, icoPath, IcoSizes);
+                    Console.WriteLine($"[ok]   {Path.GetFileName(sourcePath)} -> {baseName}.ico");
+                }
+                else
+                {
+                    using var source = Image.FromFile(sourcePath);
+                    using var shaded = IconShader.Shade(source, floor!.Value, tint.Value, DefaultCurve, false, 0.0);
+                    IconGenerator.GenerateIco(shaded, icoPath, IcoSizes);
+                    Console.WriteLine($"[ok]   {Path.GetFileName(sourcePath)} -> {baseName}.ico (tinted)");
+                }
+
                 converted++;
             }
             catch (Exception ex)
@@ -242,7 +329,8 @@ internal static class Program
     {
         if (args.Length < 2)
         {
-            Console.Error.WriteLine("Usage: icon-cli extract <set-name> [--only <name>] [--color #RRGGBB] [--force] [--refresh]");
+            Console.Error.WriteLine("Usage: icon-cli extract <set-name> [--only <name>] [--color #RRGGBB] [--mode shade|ink|silhouette]");
+            Console.Error.WriteLine("                                   [--floor #RRGGBB] [--curve <n>] [--cut <pct>] [--spread] [--force] [--refresh]");
             return 1;
         }
 
@@ -250,9 +338,15 @@ internal static class Program
         var force = args.Contains("--force", StringComparer.OrdinalIgnoreCase);
         var only = GetOptionValue(args, "--only");
         var colorText = GetOptionValue(args, "--color");
-        var silhouette = string.Equals(GetOptionValue(args, "--mode"), "silhouette", StringComparison.OrdinalIgnoreCase);
-        var refresh = args.Contains("--refresh", StringComparer.OrdinalIgnoreCase);
-        var iconFolder = Path.Combine(IconsRoot, setName);
+        var mode = GetOptionValue(args, "--mode") ?? DefaultMode;
+        var silhouette = string.Equals(mode, "silhouette", StringComparison.OrdinalIgnoreCase);
+        var shade = string.Equals(mode, "shade", StringComparison.OrdinalIgnoreCase);
+
+        if (!silhouette && !shade && !string.Equals(mode, "ink", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine($"unknown --mode '{mode}', expected shade, ink or silhouette");
+            return 1;
+        }
 
         var tint = ResolveTint(setName, colorText);
         if (tint is null)
@@ -261,16 +355,47 @@ internal static class Program
             return 1;
         }
 
-        if (!Directory.Exists(iconFolder))
+        var floorColor = ParseColor(GetOptionValue(args, "--floor"))
+                         ?? IconShader.FloorFor(tint.Value, DefaultFloorRatio);
+        var spread = args.Contains("--spread", StringComparer.OrdinalIgnoreCase);
+        var curve = DefaultCurve;
+
+        if (GetOptionValue(args, "--curve") is { } curveText
+            && !double.TryParse(curveText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out curve))
         {
-            Directory.CreateDirectory(iconFolder);
-            Console.WriteLine($"Created icon set '{setName}' at {iconFolder}");
+            Console.Error.WriteLine($"--curve needs a number, got '{curveText}'");
+            return 1;
         }
 
-        var originalsFolder = Path.Combine(IconsRoot, OriginalsFolderName);
-        Directory.CreateDirectory(originalsFolder);
+        if (curve <= 0.0)
+        {
+            Console.Error.WriteLine("--curve must be greater than 0");
+            return 1;
+        }
 
-        var icoFiles = Directory.GetFiles(iconFolder, "*.ico");
+        var cut = 0.0;
+
+        if (GetOptionValue(args, "--cut") is { } cutText
+            && !double.TryParse(cutText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out cut))
+        {
+            Console.Error.WriteLine($"--cut needs a percentage, got '{cutText}'");
+            return 1;
+        }
+
+        if (cut < 0.0 || cut > 95.0)
+        {
+            Console.Error.WriteLine("--cut must be between 0 and 95");
+            return 1;
+        }
+
+        cut /= 100.0;
+        var refresh = args.Contains("--refresh", StringComparer.OrdinalIgnoreCase);
+        var iconFolder = Path.Combine(IconsRoot, setName);
+
+        var originalsFolder = Path.Combine(IconsRoot, OriginalsFolderName);
+        var folderExists = Directory.Exists(iconFolder);
+
+        var icoFiles = folderExists ? Directory.GetFiles(iconFolder, "*.ico") : Array.Empty<string>();
         var shortcuts = GetDesktopPaths()
             .SelectMany(d => Directory.EnumerateFiles(d, "*.lnk").Concat(Directory.EnumerateFiles(d, "*.url")))
             .Where(f => Matches(Path.GetFileNameWithoutExtension(f), only))
@@ -291,7 +416,9 @@ internal static class Program
 
         var created = 0;
         var skipped = 0;
-        dynamic? shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!);
+
+        var shell = CreateShell();
+        if (shell is null) return 1;
 
         foreach (var shortcutPath in shortcuts)
         {
@@ -299,7 +426,7 @@ internal static class Program
             var ext = Path.GetExtension(shortcutPath);
             var icoPath = Path.Combine(iconFolder, name + ".ico");
 
-            if (!force && FindMatchingIcon(name, icoFiles) is not null)
+            if (!force && FindMatchingIcon(name, folderExists ? Directory.GetFiles(iconFolder, "*.ico") : icoFiles) is not null)
             {
                 Console.WriteLine($"[skip] {name}{ext}, set already has an icon");
                 skipped++;
@@ -308,8 +435,19 @@ internal static class Program
 
             try
             {
+                if (!folderExists)
+                {
+                    Directory.CreateDirectory(iconFolder);
+                    Console.WriteLine($"Created icon set '{setName}' at {iconFolder}");
+                    folderExists = true;
+                }
+
+                Directory.CreateDirectory(originalsFolder);
+
                 var originalPath = Path.Combine(originalsFolder, name + ".png");
                 var archived = File.Exists(originalPath) && !refresh;
+
+                var extracted = 0;
 
                 Bitmap? original;
                 if (archived)
@@ -320,32 +458,47 @@ internal static class Program
                 else
                 {
                     var source = ShortcutIconExtractor.ResolveIconSource((object)shell!, shortcutPath, IconsRoot);
-                    if (source is null)
+                    if (!source.Found)
                     {
-                        Console.WriteLine($"[skip] {name}{ext}, no icon source outside the icon sets");
+                        Console.WriteLine($"[skip] {name}{ext}, {source.Problem}");
                         skipped++;
                         continue;
                     }
 
-                    original = ShortcutIconExtractor.Extract(source.Value.File, source.Value.Index);
+                    original = ShortcutIconExtractor.Extract(source.File, source.Index, out extracted);
                     if (original is null)
                     {
-                        Console.WriteLine($"[fail] {name}{ext}, no icon in '{source.Value.File}'");
+                        Console.WriteLine($"[fail] {name}{ext}, no icon in '{source.File}'");
                         continue;
                     }
 
-                    original.Save(originalPath, ImageFormat.Png);
+                    using (original)
+                    {
+                        original.Save(originalPath, ImageFormat.Png);
+                    }
+
+                    // Reload from the archive so the bitmap below is owned by exactly one
+                    // scope whether or not this branch ran.
+                    using var written = Image.FromFile(originalPath);
+                    original = new Bitmap(written);
                 }
 
                 using var _ = original;
 
-                using var tinted = silhouette
-                    ? IconRecolorer.Tint(original, tint.Value)
-                    : IconRecolorer.ToInk(original, tint.Value);
-
-                if (silhouette && IconRecolorer.OpaqueCoverage(original) > 0.9)
+                if (extracted > 0 && extracted < IcoSizes[^1])
                 {
-                    Console.WriteLine($"[warn] {name}{ext}, source is nearly all opaque, silhouette will be a solid block");
+                    Console.WriteLine($"[warn] {name}{ext}, source only holds {extracted}px, larger frames are upscaled");
+                }
+
+                using var tinted = shade
+                    ? IconShader.Shade(original, floorColor, tint.Value, curve, spread, cut)
+                    : silhouette
+                        ? IconRecolorer.Tint(original, tint.Value)
+                        : IconRecolorer.ToInk(original, tint.Value);
+
+                if (silhouette && IconRecolorer.OpaqueCoverage(original) > 0.5)
+                {
+                    Console.WriteLine($"[warn] {name}{ext}, source is mostly opaque, silhouette will be close to a solid block");
                 }
 
                 IconGenerator.GenerateIco(tinted, icoPath, IcoSizes);
@@ -378,30 +531,75 @@ internal static class Program
         return 0;
     }
 
+    /// <summary>
+    /// The scripting host used to read and write .lnk shortcuts, or null with a message
+    /// when it is not registered.
+    /// </summary>
+    private static dynamic? CreateShell()
+    {
+        var type = Type.GetTypeFromProgID("WScript.Shell");
+        if (type is null)
+        {
+            Console.Error.WriteLine("WScript.Shell is not registered, cannot read or write .lnk shortcuts");
+            return null;
+        }
+
+        return Activator.CreateInstance(type);
+    }
+
+    private static Color? ParseColor(string? text)
+    {
+        if (text is null) return null;
+
+        try
+        {
+            return ColorTranslator.FromHtml(text);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     private static Color? ResolveTint(string setName, string? colorText)
     {
         if (colorText is not null)
         {
-            try
+            var parsed = ParseColor(colorText);
+            if (parsed is null)
             {
-                return ColorTranslator.FromHtml(colorText);
+                Console.Error.WriteLine($"'{colorText}' is not a colour, expected #RRGGBB or a colour name");
             }
-            catch (Exception)
-            {
-                return null;
-            }
+
+            return parsed;
         }
 
         var lower = setName.ToLowerInvariant();
         if (lower.StartsWith("white")) return Color.White;
         if (lower.StartsWith("black")) return Color.Black;
+
+        try
+        {
+            var named = ColorTranslator.FromHtml(setName);
+            if (named.A != 0) return named;
+        }
+        catch (Exception)
+        {
+        }
+
         return null;
     }
 
     private static string? GetOptionValue(string[] args, string option)
     {
         var index = Array.FindIndex(args, a => a.Equals(option, StringComparison.OrdinalIgnoreCase));
-        if (index < 0 || index + 1 >= args.Length) return null;
+        if (index < 0) return null;
+
+        if (index + 1 >= args.Length || args[index + 1].StartsWith("--", StringComparison.Ordinal))
+        {
+            throw new ArgumentException($"{option} needs a value");
+        }
+
         return args[index + 1];
     }
 
@@ -456,12 +654,25 @@ internal static class Program
             string.Equals(Path.GetFileNameWithoutExtension(f), cleanName, StringComparison.OrdinalIgnoreCase));
         if (fuzzy is not null) return fuzzy;
 
-        return icoFiles.FirstOrDefault(f =>
+        // Longest match wins. "Ark" would otherwise claim both ARK entries, settled by
+        // nothing more than directory order.
+        var candidates = icoFiles
+            .Where(f =>
+            {
+                var baseName = Path.GetFileNameWithoutExtension(f);
+                return shortcutName.Contains(baseName, StringComparison.OrdinalIgnoreCase)
+                    || baseName.Contains(shortcutName, StringComparison.OrdinalIgnoreCase);
+            })
+            .OrderByDescending(f => Path.GetFileNameWithoutExtension(f).Length)
+            .ToList();
+
+        if (candidates.Count > 1)
         {
-            var baseName = Path.GetFileNameWithoutExtension(f);
-            return shortcutName.Contains(baseName, StringComparison.OrdinalIgnoreCase)
-                || baseName.Contains(shortcutName, StringComparison.OrdinalIgnoreCase);
-        });
+            var names = candidates.Select(Path.GetFileName);
+            Console.WriteLine($"[warn] '{shortcutName}' matches {candidates.Count} icons ({string.Join(", ", names)}), using the longest");
+        }
+
+        return candidates.FirstOrDefault();
     }
 
     private static void UpdateLnkIcon(dynamic shell, string shortcutPath, string icoFile)
@@ -472,20 +683,17 @@ internal static class Program
         Marshal.ReleaseComObject(lnk);
     }
 
-    private static void UpdateUrlIcon(string shortcutPath, string icoFile)
+    private static bool UpdateUrlIcon(string shortcutPath, string icoFile, out bool changed)
     {
+        changed = false;
+
         var content = File.ReadAllText(shortcutPath);
-
-        if (Regex.IsMatch(content, "^IconFile=.*$", RegexOptions.Multiline))
-        {
-            content = Regex.Replace(content, "^IconFile=.*$", $"IconFile={icoFile}", RegexOptions.Multiline);
-        }
-        else if (content.Contains("[InternetShortcut]"))
-        {
-            content = content.Replace("[InternetShortcut]", $"[InternetShortcut]\r\nIconFile={icoFile}\r\nIconIndex=0");
-        }
-
-        File.WriteAllText(shortcutPath, content, System.Text.Encoding.ASCII);
+        var updated = UrlShortcut.SetIcon(content, icoFile);
+        if (updated is null) return false;
+        if (updated == content) return true;
+        File.WriteAllText(shortcutPath, updated, new System.Text.UTF8Encoding(false));
+        changed = true;
+        return true;
     }
 
     private static void NotifyShortcutChanged(string shortcutPath)

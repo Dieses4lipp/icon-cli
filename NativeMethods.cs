@@ -26,4 +26,29 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool DestroyIcon(IntPtr hIcon);
+
+    public delegate bool EnumResNameProc(IntPtr module, IntPtr type, IntPtr name, IntPtr param);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern IntPtr LoadLibraryEx(string fileName, IntPtr reserved, int flags);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool FreeLibrary(IntPtr module);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EnumResourceNames(IntPtr module, IntPtr type, EnumResNameProc callback, IntPtr param);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern IntPtr FindResource(IntPtr module, IntPtr name, IntPtr type);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr LoadResource(IntPtr module, IntPtr resource);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr LockResource(IntPtr resourceData);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern int SizeofResource(IntPtr module, IntPtr resource);
 }

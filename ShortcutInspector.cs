@@ -2,16 +2,25 @@ namespace IconCli;
 
 internal static class ShortcutInspector
 {
-    private static readonly byte[] DarwinDataBlock = { 0x14, 0x03, 0x00, 0x00, 0x06, 0x00, 0x00, 0xA0 };
+    private const int HeaderSize = 0x4C;
+    private const int LinkFlagsOffset = 20;
+    private const uint HasDarwinId = 0x00001000;
 
+    /// <summary>
+    /// Whether the shortcut resolves through an installer rather than a fixed target.
+    /// Windows rewrites these from the installed product, so a custom icon set on one
+    /// would be replaced the next time the installer touches it.
+    /// </summary>
     public static bool IsAdvertised(string shortcutPath)
     {
         if (!Path.GetExtension(shortcutPath).Equals(".lnk", StringComparison.OrdinalIgnoreCase)) return false;
 
-        byte[] bytes;
+        byte[] header;
         try
         {
-            bytes = File.ReadAllBytes(shortcutPath);
+            using var stream = File.OpenRead(shortcutPath);
+            header = new byte[HeaderSize];
+            if (stream.Read(header, 0, HeaderSize) < HeaderSize) return false;
         }
         catch (IOException)
         {
@@ -22,24 +31,9 @@ internal static class ShortcutInspector
             return false;
         }
 
-        return Contains(bytes, DarwinDataBlock);
-    }
+        if (BitConverter.ToInt32(header, 0) != HeaderSize) return false;
 
-    private static bool Contains(byte[] haystack, byte[] needle)
-    {
-        for (var i = 0; i <= haystack.Length - needle.Length; i++)
-        {
-            var found = true;
-            for (var j = 0; j < needle.Length; j++)
-            {
-                if (haystack[i + j] == needle[j]) continue;
-                found = false;
-                break;
-            }
-
-            if (found) return true;
-        }
-
-        return false;
+        var flags = BitConverter.ToUInt32(header, LinkFlagsOffset);
+        return (flags & HasDarwinId) != 0;
     }
 }
