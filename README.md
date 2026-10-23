@@ -7,6 +7,20 @@ points. A set named
 after a colour picks it up from its own name - `white`, `black`, `blue`, `teal`,
 `crimson`, any CSS colour name. Anything else needs `--color`.
 
+## Install
+
+Requires Windows and the .NET 10 SDK. Build the package and install it as a global
+tool, which puts `icon-cli` on your PATH:
+
+```
+dotnet pack -c Release
+dotnet tool install -g icon-cli --add-source ./artifacts/nupkg
+```
+
+After changing the code, bump `<Version>` in `icon-cli.csproj`, pack again, and run
+`dotnet tool update -g icon-cli --add-source ./artifacts/nupkg`. Remove it with
+`dotnet tool uninstall -g icon-cli`.
+
 ## Commands
 
 ```

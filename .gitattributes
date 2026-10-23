@@ -1,0 +1,18 @@
+# Normalise line endings in the repo; checkout uses platform-native endings.
+* text=auto
+
+# Scripts that must stay CRLF for Windows PowerShell.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Shell scripts must stay LF even on Windows checkouts.
+*.sh text eol=lf
+
+# Binary assets: never normalise, never diff as text.
+*.ico binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.nupkg binary
+*.exe binary
