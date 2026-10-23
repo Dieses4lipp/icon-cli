@@ -21,6 +21,19 @@
     <PackageOutputPath>artifacts/nupkg</PackageOutputPath>
   </PropertyGroup>
 
+  <!--
+    Self-contained single-file exe for users without the SDK:
+      dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true
+    PackAsTool and RuntimeIdentifier are mutually exclusive (NETSDK1146), so the exe
+    build switches PackAsTool off. Compression halves the bundle at a small startup cost.
+  -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <PackAsTool>false</PackAsTool>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
   <ItemGroup>
     <None Include="LICENSE;README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
