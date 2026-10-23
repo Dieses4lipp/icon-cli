@@ -1,6 +1,8 @@
 # icon-cli
 
-An simple tool for changing the color of your Desktop Icons
+[![release](https://img.shields.io/github/v/release/Dieses4lipp/icon-cli?sort=semver)](https://github.com/Dieses4lipp/icon-cli/releases/latest)
+
+A simple tool for changing the color of your Desktop Icons
 
 Icon sets live in an `Icons` folder on your desktop, or wherever `ICON_CLI_ROOT`
 points. A set named
@@ -9,8 +11,29 @@ after a colour picks it up from its own name - `white`, `black`, `blue`, `teal`,
 
 ## Install
 
-Requires Windows and the .NET 10 SDK. Build the package and install it as a global
-tool, which puts `icon-cli` on your PATH:
+Windows only. No .NET install needed, no administrator rights:
+
+```powershell
+irm https://raw.githubusercontent.com/Dieses4lipp/icon-cli/main/install.ps1 | iex
+```
+
+That downloads the self-contained `icon-cli.exe` from the latest release, checks it
+against the SHA256 published next to it, puts it in
+`%LOCALAPPDATA%\Programs\icon-cli` and adds that folder to your User PATH. Open a
+new terminal afterwards. A specific release:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Dieses4lipp/icon-cli/main/install.ps1))) -Version 0.1.0
+```
+
+Piping a script straight into `iex` runs whatever that URL serves, so read
+[install.ps1](install.ps1) first if that bothers you — or download the `.exe` and
+`.exe.sha256` from the [releases page](https://github.com/Dieses4lipp/icon-cli/releases/latest)
+and compare the hash yourself with `Get-FileHash`.
+
+### As a dotnet tool
+
+With the .NET 10 SDK, from a clone:
 
 ```
 dotnet pack -c Release
@@ -18,8 +41,22 @@ dotnet tool install -g icon-cli --add-source ./artifacts/nupkg
 ```
 
 After changing the code, bump `<Version>` in `icon-cli.csproj`, pack again, and run
-`dotnet tool update -g icon-cli --add-source ./artifacts/nupkg`. Remove it with
-`dotnet tool uninstall -g icon-cli`.
+`dotnet tool update -g icon-cli --add-source ./artifacts/nupkg`.
+
+## Uninstall
+
+The one-liner install:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Dieses4lipp/icon-cli/main/install.ps1))) -Uninstall
+```
+
+That deletes `%LOCALAPPDATA%\Programs\icon-cli` and takes its PATH entry back out.
+The dotnet tool install:
+
+```
+dotnet tool uninstall -g icon-cli
+```
 
 ## Commands
 
