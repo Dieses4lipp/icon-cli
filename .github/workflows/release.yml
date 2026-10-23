@@ -1,0 +1,89 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Check the tag matches the project version
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          # XPath, not property access: PropertyGroup is a node list and strict mode
+          # throws on the groups that carry no <Version>.
+          $node = ([xml](Get-Content -LiteralPath 'icon-cli.csproj')).SelectSingleNode('/Project/PropertyGroup/Version')
+          if ($null -eq $node) {
+              throw 'No <Version> element found in icon-cli.csproj.'
+          }
+          $version = $node.InnerText.Trim()
+
+          $tag = $env:GITHUB_REF_NAME
+          $expected = "v$version"
+          if ($tag -ne $expected) {
+              throw "Tag '$tag' does not match <Version> '$version' (expected '$expected')."
+          }
+
+          Write-Host "Tag $tag matches project version $version."
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Test
+        run: dotnet test tests/icon-cli.Tests.csproj -c Release
+
+      - name: Publish the self-contained exe
+        run: >
+          dotnet publish icon-cli.csproj -c Release -r win-x64 --self-contained
+          -p:PublishSingleFile=true -p:PackAsTool=false
+          -o artifacts/exe
+
+      - name: Pack the dotnet tool
+        run: dotnet pack icon-cli.csproj -c Release -o artifacts/nupkg
+
+      - name: Write the SHA256 checksum
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $exe = 'artifacts/exe/icon-cli.exe'
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  icon-cli.exe" | Out-File -FilePath 'artifacts/exe/icon-cli.exe.sha256' -Encoding ascii -NoNewline
+          Write-Host "icon-cli.exe  SHA256 $hash"
+
+      - name: Create the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          gh release create $env:GITHUB_REF_NAME `
+              --title $env:GITHUB_REF_NAME `
+              --generate-notes `
+              artifacts/exe/icon-cli.exe `
+              artifacts/exe/icon-cli.exe.sha256 `
+              (Get-Item 'artifacts/nupkg/icon-cli.*.nupkg').FullName
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "gh release create failed with exit code $LASTEXITCODE."
+          }
