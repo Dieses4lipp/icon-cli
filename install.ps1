@@ -140,18 +140,47 @@ function Test-SamePath {
     return [string]::Equals($a, $b, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
-function Add-UserPathEntry {
-    param([string] $Directory)
+function Add-PathEntry {
+    param(
+        [string[]] $Entries,
+        [string] $Directory
+    )
 
-    $entries = Get-UserPathEntries
-    foreach ($entry in $entries) {
+    foreach ($entry in $Entries) {
         if (Test-SamePath -Left $entry -Right $Directory) {
-            Write-Host "PATH already contains $Directory."
-            return
+            return $null
         }
     }
 
-    $updated = @($entries) + $Directory
+    # The unary comma keeps the array intact. A bare array return unrolls, and a
+    # single entry would come back as a string.
+    return , @(@($Entries) + $Directory)
+}
+
+function Remove-PathEntry {
+    param(
+        [string[]] $Entries,
+        [string] $Directory
+    )
+
+    $remaining = @($Entries | Where-Object { -not (Test-SamePath -Left $_ -Right $Directory) })
+    if ($remaining.Count -eq @($Entries).Count) {
+        return $null
+    }
+
+    # Without the unary comma an emptied list would unroll to $null, which is the
+    # signal for 'the directory was not there'.
+    return , $remaining
+}
+
+function Add-UserPathEntry {
+    param([string] $Directory)
+
+    $updated = Add-PathEntry -Entries (Get-UserPathEntries) -Directory $Directory
+    if ($null -eq $updated) {
+        Write-Host "PATH already contains $Directory."
+        return
+    }
 
     # 'User' writes HKCU\Environment only, and broadcasts WM_SETTINGCHANGE so
     # newly started processes pick the value up.
@@ -162,10 +191,8 @@ function Add-UserPathEntry {
 function Remove-UserPathEntry {
     param([string] $Directory)
 
-    $entries = Get-UserPathEntries
-    $remaining = @($entries | Where-Object { -not (Test-SamePath -Left $_ -Right $Directory) })
-
-    if ($remaining.Count -eq $entries.Count) {
+    $remaining = Remove-PathEntry -Entries (Get-UserPathEntries) -Directory $Directory
+    if ($null -eq $remaining) {
         Write-Host "PATH does not contain $Directory."
         return
     }
@@ -318,9 +345,13 @@ function Invoke-Install {
     Write-Host "Remove it from Settings, Apps, Installed apps, or run: $uninstallerPath -Uninstall"
 }
 
-if ($Uninstall) {
-    Invoke-Uninstall
-}
-else {
-    Invoke-Install
+# Dot-sourcing loads the functions for the Pester suite, so it must not install.
+# Every other route, including 'irm | iex', reports something other than '.'.
+if ($MyInvocation.InvocationName -ne '.') {
+    if ($Uninstall) {
+        Invoke-Uninstall
+    }
+    else {
+        Invoke-Install
+    }
 }
