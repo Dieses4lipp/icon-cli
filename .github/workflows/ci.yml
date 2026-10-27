@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  dotnet-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Test
+        run: dotnet test tests/icon-cli.Tests.csproj -c Release
+
+  installer-test:
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [pwsh, powershell]
+
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Make sure Pester 5 is available
+        shell: ${{ matrix.shell }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $pester = Get-Module -ListAvailable -Name 'Pester' |
+              Sort-Object -Property Version -Descending |
+              Select-Object -First 1
+
+          if ($null -ne $pester -and $pester.Version.Major -ge 5) {
+              Write-Host "Pester $($pester.Version) is already available."
+              exit 0
+          }
+
+          # Windows PowerShell 5.1 still resolves the Pester 3.4.0 that ships
+          # with the image, and reaches the gallery over TLS 1.0 by default.
+          if ($PSVersionTable.PSEdition -eq 'Desktop') {
+              [System.Net.ServicePointManager]::SecurityProtocol =
+                  [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+          }
+
+          Install-Module Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Run the installer tests
+        shell: ${{ matrix.shell }}
+        run: ./tests/Invoke-InstallerTests.ps1
