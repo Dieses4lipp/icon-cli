@@ -71,6 +71,17 @@ The dotnet tool install:
 dotnet tool uninstall -g icon-cli
 ```
 
+## Verifying the installer in Windows Sandbox
+
+The claim that you need no .NET install is only worth as much as the box it was
+tested on. [sandbox/](sandbox/README.md) holds a harness that runs the published
+one-liner inside Windows Sandbox, on a clean Windows with no runtime, and asserts
+the exe installs, runs, converts a real image and uninstalls again.
+
+It also stages what no script can check, an unsigned copy carrying the Mark of
+the Web a browser download attaches, so you can click it yourself and see what
+SmartScreen says. Run it with `.\sandbox\Invoke-SandboxTest.ps1`.
+
 ## Commands
 
 ```
