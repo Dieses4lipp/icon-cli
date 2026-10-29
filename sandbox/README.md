@@ -14,7 +14,8 @@ machine. This harness checks them on a throwaway Windows box.
    `Zone.Identifier` and to raise no SmartScreen prompt. A browser download does
    attach `ZoneId=3`, and that is the path where SmartScreen fires. The run
    asserts the absence on the installer path and stages a synthetic `ZoneId=3`
-   copy on the sandbox desktop for the browser path.
+   copy on the sandbox desktop for the browser path. Both halves are answered;
+   the verdict is at the end of this file.
 
 ## Run it
 
@@ -67,3 +68,27 @@ PC** dialog appears.
 Windows Sandbox resets SmartScreen and Defender state with every session, so it
 has no local reputation history and no record of this exe. Its verdict is a
 reasonable proxy for a real user's first run, not an identical one.
+
+Note that the run's last check uninstalls, so by the time the guest gives you a
+prompt, `icon-cli` is no longer on the guest's PATH. The desktop copy is a
+separate file the guest wrote itself, which the uninstall does not touch, and it
+still runs from its own path. Launching it from a shell rather than Explorer
+skips the gate, because the gate is the Explorer shell's.
+
+### Verdict, 2026-10-29
+
+Run against `main` at version 0.1.0, 9 of 9 asserts passed, 0 failures.
+
+SmartScreen fires on the browser-download path. The dialog is **Windows
+protected your PC**, Defender SmartScreen prevented an unknown app from
+starting. Its default button is **Don't run**; **More info** expands to reveal
+**Run anyway**. So that user needs two extra clicks, and the `install.ps1` path
+has no gate at all, which the `InstalledExeHasNoMotw` assert covers.
+
+That verdict is the default behaviour, not an artefact of the guest:
+`SmartScreenEnabled` is not set in HKCU and no SmartScreen policy values are
+present under HKLM, both of which `SmartScreenPolicy` records.
+
+Only an Authenticode signature removes the dialog, immediately with an EV
+certificate and after reputation builds with an OV one. Until that is worth a
+hardware token, `install.ps1` stays the documented install route.
