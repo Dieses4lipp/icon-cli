@@ -24,7 +24,7 @@ new terminal afterwards.
 
 It needs no administrator rights and nothing goes into `Program Files`. Alongside
 the exe it keeps a copy of itself as `icon-cli-installer.ps1` and registers
-icon-cli under **Settings → Apps → Installed apps** for the current user only, so
+icon-cli under **Settings -> Apps -> Installed apps** for the current user only, so
 it can be removed from there without the network. A specific release:
 
 ```powershell
@@ -32,7 +32,7 @@ it can be removed from there without the network. A specific release:
 ```
 
 Piping a script straight into `iex` runs whatever that URL serves, so read
-[install.ps1](install.ps1) first if that bothers you — or download the `.exe` and
+[install.ps1](install.ps1) first if that bothers you - or download the `.exe` and
 `.exe.sha256` from the [releases page](https://github.com/Dieses4lipp/icon-cli/releases/latest)
 and compare the hash yourself with `Get-FileHash`.
 
@@ -50,7 +50,7 @@ After changing the code, bump `<Version>` in `icon-cli.csproj`, pack again, and 
 
 ## Uninstall
 
-The one-liner install, from **Settings → Apps → Installed apps → icon-cli →
+The one-liner install, from **Settings -> Apps -> Installed apps -> icon-cli ->
 Uninstall**, or from a terminal:
 
 ```powershell
@@ -98,9 +98,9 @@ Everything below applies to `extract`.
 
 | Parameter | Default | What it does |
 | --- | --- | --- |
-| `--mode shade\|ink\|silhouette` | `shade` | `shade` maps the whole icon into a band of near-white greys, keeping its brightness order. `ink` erases the background and paints what is left one flat colour. `silhouette` fills the entire opaque area — line art only. |
+| `--mode shade\|ink\|silhouette` | `shade` | `shade` maps the whole icon into a band of near-white greys, keeping its brightness order. `ink` erases the background and paints what is left one flat colour. `silhouette` fills the entire opaque area - line art only. |
 | `--floor #RRGGBB` | 59% of the set colour's lightness | Dark end of the band; the set colour is the light end. A lower floor means more contrast and more visible detail. Derived in the set's own hue, so a blue set floors at a dark blue. `shade` only. |
-| `--curve <n>` | `3` | Bends the mapping. `1` is a straight line. Above `1` pushes the middle towards white, which most app icons need — a large dark badge otherwise sits on the floor. `shade` only. |
+| `--curve <n>` | `3` | Bends the mapping. `1` is a straight line. Above `1` pushes the middle towards white, which most app icons need - a large dark badge otherwise sits on the floor. `shade` only. |
 | `--cut <pct>` | `0` | Drops the darkest `pct` of the range to transparent. Cuts by brightness, not by what is behind what, so on an icon with a light background it removes the logo instead. `shade` only. |
 | `--spread` | off | Places each shade by how much of the icon is darker than it, so the band gets used evenly whatever the source looks like. `shade` only. |
 | `--color #RRGGBB` | from set name | Set colour, needed when the folder name is not a colour. |
