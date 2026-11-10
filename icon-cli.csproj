@@ -13,7 +13,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>icon-cli</ToolCommandName>
     <PackageId>icon-cli</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Authors>Dieses4lipp</Authors>
     <Description>Recolours and applies Windows desktop shortcut icons.</Description>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
