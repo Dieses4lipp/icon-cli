@@ -175,7 +175,7 @@ internal static class Program
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[fail] {name}{ext} — {ex.Message}");
+                Console.WriteLine($"[fail] {name}{ext} - {ex.Message}");
             }
         }
 
@@ -313,7 +313,7 @@ internal static class Program
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[fail] {Path.GetFileName(sourcePath)} — {ex.Message}");
+                Console.WriteLine($"[fail] {Path.GetFileName(sourcePath)} - {ex.Message}");
             }
         }
 
@@ -514,7 +514,7 @@ internal static class Program
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[fail] {name}{ext} — {ex.Message}");
+                Console.WriteLine($"[fail] {name}{ext} - {ex.Message}");
             }
         }
 

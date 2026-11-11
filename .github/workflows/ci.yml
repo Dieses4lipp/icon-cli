@@ -31,12 +31,17 @@ jobs:
       matrix:
         shell: [pwsh, powershell]
 
+    # Step-level shell: is not expression-enabled, so matrix.shell has to land
+    # here; jobs.<job_id>.defaults.run is one of the keys that takes matrix.
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Make sure Pester 5 is available
-        shell: ${{ matrix.shell }}
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
@@ -60,5 +65,4 @@ jobs:
           Install-Module Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser -SkipPublisherCheck
 
       - name: Run the installer tests
-        shell: ${{ matrix.shell }}
         run: ./tests/Invoke-InstallerTests.ps1

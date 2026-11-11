@@ -69,6 +69,33 @@ jobs:
           "$hash  icon-cli.exe" | Out-File -FilePath 'artifacts/exe/icon-cli.exe.sha256' -Encoding ascii -NoNewline
           Write-Host "icon-cli.exe  SHA256 $hash"
 
+      - name: Extract the release notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          # The section runs from "## [x.y.z]" up to the next "## [" heading or the
+          # link references at the bottom.
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $lines = Get-Content -LiteralPath 'CHANGELOG.md'
+          $start = [Array]::FindIndex($lines, [Predicate[string]] { param($l) $l.StartsWith("## [$version]") })
+          if ($start -lt 0) {
+              throw "CHANGELOG.md has no '## [$version]' section."
+          }
+
+          $notes = foreach ($line in $lines[($start + 1)..($lines.Count - 1)]) {
+              if ($line.StartsWith('## [') -or $line -match '^\[[^\]]+\]:\s') { break }
+              $line
+          }
+          $text = ($notes -join "`n").Trim()
+          if ([string]::IsNullOrWhiteSpace($text)) {
+              throw "The '## [$version]' section in CHANGELOG.md is empty."
+          }
+
+          Set-Content -LiteralPath 'artifacts/release-notes.md' -Value $text -Encoding utf8NoBOM
+          Write-Host $text
+
       - name: Create the GitHub release
         shell: pwsh
         env:
@@ -79,7 +106,7 @@ jobs:
 
           gh release create $env:GITHUB_REF_NAME `
               --title $env:GITHUB_REF_NAME `
-              --generate-notes `
+              --notes-file artifacts/release-notes.md `
               artifacts/exe/icon-cli.exe `
               artifacts/exe/icon-cli.exe.sha256 `
               (Get-Item 'artifacts/nupkg/icon-cli.*.nupkg').FullName
