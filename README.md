@@ -7,7 +7,7 @@
 **Recolor every icon on your Windows desktop to one color, with one command.**
 
 <p align="center">
-  <img src="docs/before-after.png" width="900"
+  <img src="docs/before-after.webp" width="900"
        alt="The same Windows desktop before and after icon-cli: mixed app icons on the left, every icon in one white shade on the right">
 </p>
 
@@ -92,6 +92,22 @@ The dotnet tool install:
 ```
 dotnet tool uninstall -g icon-cli
 ```
+
+## Why
+
+Windows has no setting to theme desktop icons. Doing it by hand means exporting every icon, editing it in an image editor and reassigning it per shortcut, and doing all of that again for the next color.
+
+**What was hard**
+
+- Plain tinting turns every icon into a flat silhouette. The default `shade` mode maps each pixel's perceived lightness (CIE L*) onto a narrow band of the target color, so the artwork's light and dark parts stay in order and the icon stays recognizable.
+- Shortcuts get their icon from `.ico` files, from resources inside an `.exe` or from an index into a DLL. Extraction goes through the Win32 API and reads the largest frame available; small sources such as PuTTY's 48px icon are flagged before they are upscaled.
+- Explorer caches icons, so after a change the tool notifies the shell (`SHChangeNotify`) and the desktop updates without signing out.
+
+**Trade-offs**
+
+- Self-contained single exe: a larger download, but no .NET install and no admin rights needed.
+- The exe is not code-signed. Instead the installer verifies the release's SHA256, and the SmartScreen prompt on a browser download is documented above.
+- Originals are archived in `_originals` before anything changes, so a set can be rebuilt with other settings without re-reading the shortcuts.
 
 ## Commands
 
